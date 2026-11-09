@@ -1,0 +1,6 @@
+{
+  "name": "NavPattern — Website Navigation Pattern Analysis & Web Usage Mining",
+  "description": "Clickstream log analyzer, first-order Markov transition matrix engine, sequential path miner, and conversion funnel bottleneck explorer for website navigation pattern analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
