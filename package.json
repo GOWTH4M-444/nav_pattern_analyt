@@ -33,5 +33,19 @@
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
     "@types/express": "^4.17.21"
+  },
+  "overrides": {
+    "vite": "$vite",
+    "esbuild": "^0.25.0",
+    "@tailwindcss/vite": {
+      "vite": "$vite"
+    },
+    "@vitejs/plugin-react": {
+      "vite": "$vite"
+    }
+  },
+  "resolutions": {
+    "vite": "^8.3.0",
+    "esbuild": "^0.25.0"
   }
 }

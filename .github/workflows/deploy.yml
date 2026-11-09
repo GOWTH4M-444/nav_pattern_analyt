@@ -1,4 +1,4 @@
-name: Build, Test & Deploy React Frontend
+name: NavPattern Studio CI/CD — Build, Test & Deploy
 
 on:
   push:
@@ -33,13 +33,14 @@ concurrency:
 env:
   NODE_VERSION: '22.x'
   PYTHON_VERSION: '3.11'
+  NPM_CONFIG_LEGACY_PEER_DEPS: 'true'
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # 1. Quality Gate: Node Setup, Linting, Unit Tests & PySpark Syntax Check
-  # ---------------------------------------------------------------------------
-  lint-and-test:
-    name: Lint & Unit Tests
+  # ===========================================================================
+  # STAGE 1: Quality Gate & Testing (Lint, Unit Tests & PySpark Syntax Check)
+  # ===========================================================================
+  quality-gate-and-test:
+    name: Stage 1 — Quality Gate & Testing
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -47,27 +48,32 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ env.NODE_VERSION }}
+      - name: Setup Node.js ${{ env.NODE_VERSION }} with npm cache
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies (npm ci)
+        run: npm ci --legacy-peer-deps
 
-      - name: Run TypeScript linting (tsc --noEmit)
+      - name: Run TypeScript type-checking (npm run lint)
         run: npm run lint
 
-      - name: Run frontend & analytics unit test suite
-        run: npm test
+      - name: Execute unit test suites (navigationMining, sessionReplay, enterpriseBigData, gestures)
+        run: |
+          npx tsx --test \
+            src/utils/navigationMining.test.ts \
+            src/utils/sessionReplay.test.ts \
+            src/utils/enterpriseBigData.test.ts \
+            src/utils/gestures.test.ts
 
       - name: Setup Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Validate PySpark, Delta Lake & Matplotlib backend scripts
+      - name: Validate Python bytecode syntax across PySpark, Delta Lake, Kafka & Matplotlib scripts
         run: |
           python3 -m py_compile \
             scripts/big_data_pipeline.py \
@@ -77,12 +83,12 @@ jobs:
             scripts/data_quality_validation.py \
             scripts/matplotlib_analytics_charts.py
 
-  # ---------------------------------------------------------------------------
-  # 2. Production Build & Artifact Generation
-  # ---------------------------------------------------------------------------
-  build:
-    name: Build Production Bundle
-    needs: lint-and-test
+  # ===========================================================================
+  # STAGE 2: Production Build & Artifact Generation
+  # ===========================================================================
+  production-build:
+    name: Stage 2 — Production Vite Build
+    needs: quality-gate-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -90,47 +96,47 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js ${{ env.NODE_VERSION }}
+      - name: Setup Node.js ${{ env.NODE_VERSION }} with npm cache
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies (npm ci)
+        run: npm ci --legacy-peer-deps
 
-      - name: Build production React bundle (Vite)
+      - name: Compile production Vite bundle
         env:
           NODE_ENV: production
         run: npm run build
 
-      - name: Verify production build output (dist/)
+      - name: Verify dist/index.html generation and bundle assets
         run: |
           test -f dist/index.html
           ls -la dist/
           ls -la dist/assets/
 
-      - name: Upload production build artifact
+      - name: Upload versioned build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: navpattern-studio-build-${{ github.sha }}
+          name: navpattern-studio-dist-${{ github.sha }}
           path: dist/
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload GitHub Pages deployment artifact
-        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      - name: Upload GitHub Pages artifact
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist/
 
-  # ---------------------------------------------------------------------------
-  # 3. Automated Production Deployment
-  # ---------------------------------------------------------------------------
-  deploy:
-    name: Deploy to Production
-    needs: build
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+  # ===========================================================================
+  # STAGE 3: Automated Production Deployment & Webhook Trigger
+  # ===========================================================================
+  automated-deployment:
+    name: Stage 3 — Automated Deployment
+    needs: production-build
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -142,6 +148,15 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Deploy production artifact to GitHub Pages
+      - name: Deploy verified production bundle to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Trigger downstream deployment webhook (if configured)
+        if: env.DEPLOY_WEBHOOK_URL != ''
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: |
+          curl -fsSL -X POST "$DEPLOY_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"commit\":\"${{ github.sha }}\",\"ref\":\"${{ github.ref }}\",\"status\":\"deployed\"}"
